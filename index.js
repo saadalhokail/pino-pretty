@@ -6,7 +6,9 @@ const { Transform } = require('readable-stream')
 const abstractTransport = require('pino-abstract-transport')
 const sonic = require('sonic-boom')
 const sjs = require('secure-json-parse')
-
+var CLEVELS = {};
+var CLEVEL_NAMES = {};
+var CCOLORED = {};
 const colors = require('./lib/colors')
 const { ERROR_LIKE_KEYS, MESSAGE_KEY, TIMESTAMP_KEY, LEVEL_KEY, LEVEL_NAMES } = require('./lib/constants')
 const {
@@ -42,10 +44,11 @@ const defaultOptions = {
   outputStream: process.stdout,
   customPrettifiers: {},
   hideObject: false,
-  singleLine: false
+  singleLine: false,
+  customLevels: {}
 }
 
-function prettyFactory (options) {
+function prettyFactory(options) {
   const opts = Object.assign({}, defaultOptions, options)
   const EOL = opts.crlf ? '\r\n' : '\n'
   const IDENT = '    '
@@ -62,10 +65,10 @@ function prettyFactory (options) {
   const hideObject = opts.hideObject
   const singleLine = opts.singleLine
   const colorizer = colors(opts.colorize)
-
+  const customLevels = opts.customLevels
   return pretty
 
-  function pretty (inputData) {
+  function pretty(inputData) {
     let log
     if (!isObject(inputData)) {
       const parsed = jsonParser(inputData)
@@ -77,9 +80,27 @@ function prettyFactory (options) {
     } else {
       log = inputData
     }
+    //handle custom levels
+    if (typeof customLevels == 'object' && Object.keys(customLevels).length > 0) {
+      for (let l in customLevels) {
+        if (l == 'default') {
+
+          CLEVELS[l] = customLevels[l].label;
+          CCOLORED[l] = customLevels[l].color;
+          continue;
+        }
+        CLEVELS[l] = customLevels[l].label;
+        CLEVEL_NAMES[customLevels[l].name] = l;
+        CCOLORED[l] = customLevels[l].color;
+      }
+    }
+    else {
+      CLEVELS = LEVELS;
+      CLEVEL_NAMES = LEVEL_NAMES;
+    }
 
     if (minimumLevel) {
-      const minimum = LEVEL_NAMES[minimumLevel] || Number(minimumLevel)
+      const minimum = CLEVEL_NAMES[minimumLevel] || Number(minimumLevel)
       const level = log[levelKey === undefined ? LEVEL_KEY : levelKey]
       if (level < minimum) return
     }
@@ -90,7 +111,7 @@ function prettyFactory (options) {
       log = filterLog(log, ignoreKeys)
     }
 
-    const prettifiedLevel = prettifyLevel({ log, colorizer, levelKey })
+    const prettifiedLevel = prettifyLevel({ log, colorizer, levelKey, CCOLORED, CLEVELS, CLEVEL_NAMES })
     const prettifiedMetadata = prettifyMetadata({ log })
     const prettifiedTime = prettifyTime({ log, translateFormat: opts.translateTime, timestampKey })
 
@@ -171,13 +192,13 @@ function prettyFactory (options) {
   }
 }
 
-function build (opts = {}) {
+function build(opts = {}) {
   const pretty = prettyFactory(opts)
   return abstractTransport(function (source) {
     const stream = new Transform({
       objectMode: true,
       autoDestroy: true,
-      transform (chunk, enc, cb) {
+      transform(chunk, enc, cb) {
         const line = pretty(chunk)
         cb(null, line)
       }
